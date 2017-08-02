@@ -1,8 +1,7 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Text;
-using System.Xml.Linq;
 using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 
 namespace etrace
 {
@@ -10,11 +9,10 @@ namespace etrace
     {
         public static string AsRawString(this TraceEvent e)
         {
-
-
             var sb = new StringBuilder();
-
-            sb.Append($"{e.EventName} [PNAME={e.ProcessName} PID={e.ProcessID} TID={e.ThreadID} TIME={e.TimeStamp}] TaskName={e.TaskName}");
+            var processById = Process.GetProcessById(e.ProcessID);
+            
+            sb.Append($"{e.EventName} [PNAME={e.ProcessName} PID={e.ProcessID} TID={e.ThreadID} TIME={e.TimeStamp}] TaskName={e.TaskName} ProcessName:{processById.ProcessName} EventName:{e.EventName}");
             for (var i = 0; i < e.PayloadNames.Length; ++i)
                 try
                 {
@@ -26,18 +24,7 @@ namespace etrace
                 }
             return sb.ToString();
         }
-        static string FormatXml(string xml)
-        {
-            try
-            {
-                var doc = XDocument.Parse(xml);
-                return doc.ToString();
-            }
-            catch (Exception)
-            {
-                return xml;
-            }
-        }
+
 
         public static int GetExpectedFieldWidth(string field)
         {
