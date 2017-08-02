@@ -1,30 +1,30 @@
-﻿using CommandLine;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Parsers;
-using Microsoft.Diagnostics.Tracing.Session;
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using CommandLine;
+using Microsoft.Diagnostics.Tracing;
+using Microsoft.Diagnostics.Tracing.Parsers;
+using Microsoft.Diagnostics.Tracing.Session;
 
 namespace etrace
 {
-    class Program
+    internal class Program
     {
-        static private Options options = new Options();
-        static private IMatchedEventProcessor eventProcessor;
-        static private TraceEventSession session;
-        static private ulong processedEvents = 0;
-        static private ulong notFilteredEvents = 0;
-        static private Stopwatch sessionStartStopwatch;
-        static private bool statsPrinted = false;
+        private static readonly Options Options = new Options();
+        private static IMatchedEventProcessor _eventProcessor;
+        private static TraceEventSession _session;
+        private static ulong _processedEvents;
+        private static ulong _notFilteredEvents;
+        private static Stopwatch _sessionStartStopwatch;
+        private static bool _statsPrinted;
 
-        static void Main(string[] args)
+        private static void Main(string[] args)
         {
-            Parser.Default.ParseArguments(args, options);
-            options.PostParse();
+            Parser.Default.ParseArguments(args, Options);
+            Options.PostParse();
 
-            if (options.List != ListFlags.None)
+            if (Options.List != ListFlags.None)
             {
                 List();
                 return;
@@ -33,19 +33,15 @@ namespace etrace
             // TODO Can try TraceLog support for realtime stacks as well
             // TODO One session for both kernel and CLR is not supported on Windows 7 and older
 
-            sessionStartStopwatch = Stopwatch.StartNew();
+            _sessionStartStopwatch = Stopwatch.StartNew();
             Console.WriteLine($"Processing start time: {DateTime.Now}");
             CreateEventProcessor();
-            using (eventProcessor)
+            using (_eventProcessor)
             {
-                if (options.IsFileSession)
-                {
+                if (Options.IsFileSession)
                     FileSession();
-                }
                 else
-                {
                     RealTimeSession();
-                }
             }
 
             CloseSession();
@@ -53,20 +49,20 @@ namespace etrace
 
         private static void CreateEventProcessor()
         {
-            if (options.StatsOnly)
-                eventProcessor = new EventStatisticsAggregator();
-            else if (options.DisplayFields.Count > 0)
-                eventProcessor = new EveryEventTablePrinter(options.DisplayFields);
+            if (Options.StatsOnly)
+                _eventProcessor = new EventStatisticsAggregator();
+            else if (Options.DisplayFields.Count > 0)
+                _eventProcessor = new EveryEventTablePrinter(Options.DisplayFields);
             else
-                eventProcessor = new EveryEventPrinter();
+                _eventProcessor = new EveryEventPrinter();
         }
 
         private static void FileSession()
         {
-            if (options.ClrKeywords.Count > 0 || options.KernelKeywords.Count > 0 || options.OtherProviders.Count > 0)
+            if (Options.ClrKeywords.Count > 0 || Options.KernelKeywords.Count > 0 || Options.OtherProviders.Count > 0)
                 Bail("Specifying keywords and/or providers is not supported when parsing ETL files");
 
-            using (var source = new ETWTraceEventSource(options.File))
+            using (var source = new ETWTraceEventSource(Options.File))
             {
                 ProcessTrace(source);
             }
@@ -76,78 +72,66 @@ namespace etrace
         {
             lock (typeof(Program))
             {
-                int eventsLost = 0;
-                if (eventProcessor != null)
+                var eventsLost = 0;
+                if (_eventProcessor != null)
+                    _eventProcessor.Dispose();
+                if (_session != null)
                 {
-                    eventProcessor.Dispose();
-                }
-                if (session != null)
-                {
-                    eventsLost = session.EventsLost;
-                    session.Dispose();
-                    session = null;
+                    eventsLost = _session.EventsLost;
+                    _session.Dispose();
+                    _session = null;
                 }
 
-                if (!statsPrinted)
+                if (!_statsPrinted)
                 {
                     Console.WriteLine();
                     Console.WriteLine("{0,-30} {1}", "Processing end time:", DateTime.Now);
-                    Console.WriteLine("{0,-30} {1}", "Processing duration:", sessionStartStopwatch.Elapsed);
-                    Console.WriteLine("{0,-30} {1}", "Processed events:", processedEvents);
-                    Console.WriteLine("{0,-30} {1}", "Displayed events:", notFilteredEvents);
+                    Console.WriteLine("{0,-30} {1}", "Processing duration:", _sessionStartStopwatch.Elapsed);
+                    Console.WriteLine("{0,-30} {1}", "Processed events:", _processedEvents);
+                    Console.WriteLine("{0,-30} {1}", "Displayed events:", _notFilteredEvents);
                     Console.WriteLine("{0,-30} {1}", "Events lost:", eventsLost);
-                    statsPrinted = true;
+                    _statsPrinted = true;
                 }
             }
         }
 
         private static void RealTimeSession()
         {
-            if (options.ParsedClrKeywords == 0 &&
-                options.ParsedKernelKeywords == KernelTraceEventParser.Keywords.None &&
-                options.OtherProviders.Count == 0)
-            {
+            if (Options.ParsedClrKeywords == 0 &&
+                Options.ParsedKernelKeywords == KernelTraceEventParser.Keywords.None &&
+                Options.OtherProviders.Count == 0)
                 Bail("No events to collect");
-            }
 
             Console.CancelKeyPress += (_, __) => CloseSession();
 
-            if (options.DurationInSeconds > 0)
-            {
-                Task.Delay(TimeSpan.FromSeconds(options.DurationInSeconds))
+            if (Options.DurationInSeconds > 0)
+                Task.Delay(TimeSpan.FromSeconds(Options.DurationInSeconds))
                     .ContinueWith(_ => CloseSession());
-            }
 
-            using (session = new TraceEventSession("etrace-realtime-session"))
+            using (_session = new TraceEventSession("etrace-realtime-session"))
             {
-                if (options.ParsedKernelKeywords != KernelTraceEventParser.Keywords.None)
-                {
-                    session.EnableKernelProvider(options.ParsedKernelKeywords);
-                }
-                if (options.ParsedClrKeywords != 0)
-                {
-                    session.EnableProvider(ClrTraceEventParser.ProviderGuid,
-                                            matchAnyKeywords: (ulong)options.ParsedClrKeywords);
-                }
-                if (options.OtherProviders.Any())
-                {
-                    foreach (var provider in options.OtherProviders)
+                if (Options.ParsedKernelKeywords != KernelTraceEventParser.Keywords.None)
+                    _session.EnableKernelProvider(Options.ParsedKernelKeywords);
+                if (Options.ParsedClrKeywords != 0)
+                    _session.EnableProvider(ClrTraceEventParser.ProviderGuid,
+                        matchAnyKeywords: (ulong) Options.ParsedClrKeywords);
+                if (Options.OtherProviders.Any())
+                    foreach (var provider in Options.OtherProviders)
                     {
                         Guid guid;
                         if (Guid.TryParse(provider, out guid))
                         {
-                            session.EnableProvider(Guid.Parse(provider));
+                            _session.EnableProvider(Guid.Parse(provider));
                         }
                         else
                         {
                             guid = TraceEventProviders.GetProviderGuidByName(provider);
                             if (guid != Guid.Empty)
-                                session.EnableProvider(guid);
+                                _session.EnableProvider(guid);
                         }
                     }
-                }
 
-                ProcessTrace(session.Source);
+                ProcessTrace(_session.Source);
             }
         }
 
@@ -162,43 +146,35 @@ namespace etrace
 
         private static void List()
         {
-            if ((options.List & ListFlags.CLR) != 0)
+            if ((Options.List & ListFlags.CLR) != 0)
             {
                 Console.WriteLine("\nSupported CLR keywords (use with --clr):\n");
                 foreach (var keyword in Enum.GetNames(typeof(ClrTraceEventParser.Keywords)))
-                {
                     Console.WriteLine($"\t{keyword}");
-                }
             }
-            if ((options.List & ListFlags.Kernel) != 0)
+            if ((Options.List & ListFlags.Kernel) != 0)
             {
                 Console.WriteLine("\nSupported kernel keywords (use with --kernel):\n");
                 foreach (var keyword in Enum.GetNames(typeof(KernelTraceEventParser.Keywords)))
-                {
                     Console.WriteLine($"\t{keyword}");
-                }
             }
-            if ((options.List & ListFlags.Registered) != 0)
+            if ((Options.List & ListFlags.Registered) != 0)
             {
                 Console.WriteLine("\nRegistered or enabled providers (use with --other):\n");
                 foreach (var provider in
                     TraceEventProviders.GetRegisteredOrEnabledProviders()
-                                       .Select(guid => TraceEventProviders.GetProviderName(guid))
-                                       .OrderBy(n => n))
-                {
+                        .Select(guid => TraceEventProviders.GetProviderName(guid))
+                        .OrderBy(n => n))
                     Console.WriteLine($"\t{provider}");
-                }
             }
-            if ((options.List & ListFlags.Published) != 0)
+            if ((Options.List & ListFlags.Published) != 0)
             {
                 Console.WriteLine("\nPublished providers (use with --other):\n");
                 foreach (var provider in
                     TraceEventProviders.GetPublishedProviders()
-                                       .Select(guid => TraceEventProviders.GetProviderName(guid))
-                                       .OrderBy(n => n))
-                {
+                        .Select(guid => TraceEventProviders.GetProviderName(guid))
+                        .OrderBy(n => n))
                     Console.WriteLine($"\t{provider}");
-                }
             }
         }
 
@@ -210,33 +186,29 @@ namespace etrace
 
         private static void ProcessEvent(TraceEvent e)
         {
-            ++processedEvents;
+            ++_processedEvents;
 
-            if (options.ProcessID != -1 && options.ProcessID != e.ProcessID)
+            if (Options.ProcessID != -1 && Options.ProcessID != e.ProcessID)
                 return;
-            if (options.ThreadID != -1 && options.ThreadID != e.ThreadID)
+            if (Options.ThreadID != -1 && Options.ThreadID != e.ThreadID)
                 return;
-            if (options.Events.Count > 0 && !options.Events.Contains(e.EventName))
+            if (Options.Events.Count > 0 && !Options.Events.Contains(e.EventName))
                 return;
 
-            if (options.ParsedRawFilter != null)
+            if (Options.ParsedRawFilter != null)
             {
-                string s = e.AsRawString();
-                if (options.ParsedRawFilter.IsMatch(s))
-                {
+                var s = e.AsRawString();
+                if (Options.ParsedRawFilter.IsMatch(s))
                     TakeEvent(e, s);
-                }
             }
-            else if (options.ParsedFilters.Count > 0)
+            else if (Options.ParsedFilters.Count > 0)
             {
-                foreach (var filter in options.ParsedFilters)
-                {
+                foreach (var filter in Options.ParsedFilters)
                     if (filter.IsMatch(e))
                     {
                         TakeEvent(e);
                         break;
                     }
-                }
             }
             else
             {
@@ -247,15 +219,11 @@ namespace etrace
         private static void TakeEvent(TraceEvent e, string description = null)
         {
             if (description != null)
-            {
-                eventProcessor.TakeEvent(e, description);
-            }
+                _eventProcessor.TakeEvent(e, description);
             else
-            {
-                eventProcessor.TakeEvent(e);
-            }
+                _eventProcessor.TakeEvent(e);
 
-            ++notFilteredEvents;
+            ++_notFilteredEvents;
         }
     }
 }

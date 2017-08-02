@@ -1,36 +1,32 @@
-﻿using ConsoleTables.Core;
-using Microsoft.Diagnostics.Tracing;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using ConsoleTables.Core;
+using Microsoft.Diagnostics.Tracing;
 
 namespace etrace
 {
-    interface IMatchedEventProcessor : IDisposable
+    internal interface IMatchedEventProcessor : IDisposable
     {
         void TakeEvent(TraceEvent e);
         void TakeEvent(TraceEvent e, string description);
     }
 
-    class EveryEventTablePrinter : IMatchedEventProcessor
+    internal class EveryEventTablePrinter : IMatchedEventProcessor
     {
-        private Regex fieldWithWidth = new Regex("(.*)\\[(\\d+)\\]");
-        private Table table = new Table();
+        private readonly Regex fieldWithWidth = new Regex("(.*)\\[(\\d+)\\]");
+        private readonly Table table = new Table();
 
         public EveryEventTablePrinter(IEnumerable<string> fieldsToPrint)
         {
             foreach (var field in fieldsToPrint)
             {
-                Match match = fieldWithWidth.Match(field);
+                var match = fieldWithWidth.Match(field);
                 if (match.Success)
-                {
                     table.AddColumn(match.Groups[1].Value, int.Parse(match.Groups[2].Value));
-                }
                 else
-                {
                     table.AddColumn(field, Extensions.GetExpectedFieldWidth(field));
-                }
             }
             table.PrintHeader();
         }
@@ -51,7 +47,7 @@ namespace etrace
         }
     }
 
-    class EveryEventPrinter : IMatchedEventProcessor
+    internal class EveryEventPrinter : IMatchedEventProcessor
     {
         public void TakeEvent(TraceEvent e)
         {
@@ -68,19 +64,17 @@ namespace etrace
         }
     }
 
-    class CountingDictionary
+    internal class CountingDictionary
     {
+        public IDictionary<string, ulong> Counts { get; } = new Dictionary<string, ulong>();
+
         public void Add(string key, ulong value = 1)
         {
             ulong current;
             if (Counts.TryGetValue(key, out current))
-            {
                 Counts[key] = current + value;
-            }
             else
-            {
                 Counts.Add(key, value);
-            }
         }
 
         public void Print(string header, string key)
@@ -88,21 +82,17 @@ namespace etrace
             var table = new ConsoleTable(key, "Count");
             Console.WriteLine(header);
             foreach (var item in Counts.OrderByDescending(pair => pair.Value))
-            {
                 table.AddRow(item.Key, item.Value);
-            }
             table.Write();
             Console.WriteLine();
         }
-
-        public IDictionary<string, ulong> Counts { get; } = new Dictionary<string, ulong>();
     }
-    
-    class EventStatisticsAggregator : IMatchedEventProcessor
+
+    internal class EventStatisticsAggregator : IMatchedEventProcessor
     {
-        private CountingDictionary countByEventName = new CountingDictionary();
-        private CountingDictionary countByProcess = new CountingDictionary();
-        private bool disposed = false;
+        private readonly CountingDictionary countByEventName = new CountingDictionary();
+        private readonly CountingDictionary countByProcess = new CountingDictionary();
+        private bool disposed;
 
         public void TakeEvent(TraceEvent e)
         {

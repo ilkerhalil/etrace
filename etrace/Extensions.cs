@@ -1,17 +1,21 @@
-﻿using Microsoft.Diagnostics.Tracing;
-using System;
+﻿using System;
 using System.Text;
+using System.Xml.Linq;
+using Microsoft.Diagnostics.Tracing;
+using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 
 namespace etrace
 {
-    static class Extensions
+    internal static class Extensions
     {
         public static string AsRawString(this TraceEvent e)
         {
+
+
             var sb = new StringBuilder();
-            sb.Append($"{e.EventName} [PNAME={e.ProcessName} PID={e.ProcessID} TID={e.ThreadID} TIME={e.TimeStamp}]");
-            for (int i = 0; i < e.PayloadNames.Length; ++i)
-            {
+
+            sb.Append($"{e.EventName} [PNAME={e.ProcessName} PID={e.ProcessID} TID={e.ThreadID} TIME={e.TimeStamp}] TaskName={e.TaskName}");
+            for (var i = 0; i < e.PayloadNames.Length; ++i)
                 try
                 {
                     sb.AppendFormat("\n  {0,-20} = {1}", e.PayloadNames[i], e.PayloadValue(i));
@@ -20,8 +24,19 @@ namespace etrace
                 {
                     // TraceEvent sometimes throws this exception from PayloadValue(i).
                 }
-            }
             return sb.ToString();
+        }
+        static string FormatXml(string xml)
+        {
+            try
+            {
+                var doc = XDocument.Parse(xml);
+                return doc.ToString();
+            }
+            catch (Exception)
+            {
+                return xml;
+            }
         }
 
         public static int GetExpectedFieldWidth(string field)
@@ -52,11 +67,10 @@ namespace etrace
             if (field == "Time")
                 return e.TimeStamp.ToString();
 
-            object value = e.PayloadByName(field);
+            var value = e.PayloadByName(field);
             if (value != null)
                 return value.ToString();
-            else
-                return "<null>";
+            return "<null>";
         }
 
         public static string Truncate(this string s, int length)
